@@ -107,3 +107,24 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# OS-generated files (shared rules for macOS, Windows, and Linux)
+# macOS
+.[Dd][Ss]_[Ss]tore
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+
+# Windows
+[Tt]humbs.db
+[Dd]esktop.ini
+[Ee]hthumbs.db
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*/
+.fuse_hidden*
