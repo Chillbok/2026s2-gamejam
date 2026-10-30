@@ -796,6 +796,7 @@ MonoBehaviour:
   staminaDrainPerSecond: 20
   staminaRegenPerSecond: 15
   staminaRegenDelay: 1.25
+  sprintRecoveryRatio: 0.25
   movement:
     walkSpeed: 4.5
     sprintSpeed: 7.5

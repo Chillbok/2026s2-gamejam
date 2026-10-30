@@ -48,11 +48,14 @@ public class PlayerStatsController : MonoBehaviour, IDamageable
     [SerializeField, Min(0f)] private float staminaDrainPerSecond = 20f;
     [SerializeField, Min(0f)] private float staminaRegenPerSecond = 15f;
     [SerializeField, Min(0f)] private float staminaRegenDelay = 1.25f;
+    [SerializeField, Range(0f, 1f), Tooltip("Fraction of max stamina required to sprint again after exhaustion.")]
+    private float sprintRecoveryRatio = 0.25f;
 
     [Header("Movement Stats")]
     [SerializeField] private MovementSettings movement = new MovementSettings();
 
     private float staminaTimeSinceLastUse;
+    private bool staminaExhausted;
 
     public float MaxHealth => health.MaxValue;
     public float CurrentHealth { get; private set; }
@@ -65,7 +68,7 @@ public class PlayerStatsController : MonoBehaviour, IDamageable
     public float StaminaDrainPerSecond => Mathf.Max(0f, staminaDrainPerSecond);
     public float StaminaRegenPerSecond => Mathf.Max(0f, staminaRegenPerSecond);
     public float StaminaRegenDelay => Mathf.Max(0f, staminaRegenDelay);
-    public bool CanSprint => IsAlive && CurrentStamina > 0f;
+    public bool CanSprint => IsAlive && CurrentStamina > 0f && !staminaExhausted;
 
     public float WalkSpeed => movement.WalkSpeed;
     public float SprintSpeed => movement.SprintSpeed;
@@ -89,6 +92,8 @@ public class PlayerStatsController : MonoBehaviour, IDamageable
 
     private void Update()
     {
+        UpdateSprintAvailability();
+
         if (CurrentStamina >= MaxStamina || StaminaRegenPerSecond <= 0f)
             return;
 
@@ -97,6 +102,7 @@ public class PlayerStatsController : MonoBehaviour, IDamageable
             return;
 
         SetCurrentStamina(CurrentStamina + StaminaRegenPerSecond * Time.deltaTime);
+        UpdateSprintAvailability();
     }
 
     public void TakeDamage(float amount)
@@ -127,6 +133,9 @@ public class PlayerStatsController : MonoBehaviour, IDamageable
 
         staminaTimeSinceLastUse = 0f;
         SetCurrentStamina(CurrentStamina - amount);
+        if (CurrentStamina <= 0f)
+            staminaExhausted = true;
+
         return CanSprint;
     }
 
@@ -136,6 +145,7 @@ public class PlayerStatsController : MonoBehaviour, IDamageable
             return;
 
         SetCurrentStamina(CurrentStamina + amount);
+        UpdateSprintAvailability();
     }
 
     private void SetCurrentHealth(float value)
@@ -156,5 +166,12 @@ public class PlayerStatsController : MonoBehaviour, IDamageable
 
         CurrentStamina = clampedValue;
         StaminaChanged?.Invoke(CurrentStamina, MaxStamina);
+    }
+
+    private void UpdateSprintAvailability()
+    {
+        float recoveryThreshold = MaxStamina * Mathf.Clamp01(sprintRecoveryRatio);
+        if (staminaExhausted && CurrentStamina >= recoveryThreshold)
+            staminaExhausted = false;
     }
 }
