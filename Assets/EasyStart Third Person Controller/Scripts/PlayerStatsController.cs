@@ -1,7 +1,7 @@
 using System;
 using UnityEngine;
 
-public class PlayerStatsController : MonoBehaviour
+public class PlayerStatsController : MonoBehaviour, IDamageable
 {
     [Serializable]
     public class ResourceSettings
