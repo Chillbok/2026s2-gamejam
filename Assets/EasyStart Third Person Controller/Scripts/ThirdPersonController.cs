@@ -121,11 +121,13 @@ public class ThirdPersonController : MonoBehaviour
         else
             ungroundedTime += Time.deltaTime;
 
-        bool isAirborne = verticalVelocity > 0f ||
-                          (!groundedAfterMove && ungroundedTime >= fallAnimationDelay);
-
+        bool isAirborne = verticalVelocity > 0f || (!groundedAfterMove && ungroundedTime >= fallAnimationDelay);
+        
+        // 플레이어가 땅에 있는지 확인하기 위한 주석임. 필요 없으면 지워도 됨.
+        /*
         if (isAirborne && !wasAirborne)
             Debug.Log("Player left the ground.", this);
+        */
 
         wasAirborne = isAirborne;
 
@@ -179,7 +181,8 @@ public class ThirdPersonController : MonoBehaviour
 
     private void HandleInteract(InputAction.CallbackContext context)
     {
-        Debug.Log("Interaction key pressed (E).", this);
+        // 플레이어가 상호작용 키를 눌렀는지 확인하기 위한 로그 코드. 작동 확인했으면 지워도 됨.
+        // Debug.Log("Interaction key pressed (E).", this);
         onInteract?.Invoke();
     }
 
