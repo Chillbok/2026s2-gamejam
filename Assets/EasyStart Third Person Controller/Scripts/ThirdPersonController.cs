@@ -24,6 +24,12 @@ public class ThirdPersonController : MonoBehaviour
     [Header("Crouch")]
     [Min(0.5f)] public float crouchHeight = 0.95f;
 
+    [Header("Grounding")]
+    [Tooltip("How far below the Character Controller's foot to check for ground.")]
+    [Min(0f)] public float groundProbeDistance = 0.15f;
+    [Tooltip("How long to remain ungrounded before starting the falling animation.")]
+    [Min(0f)] public float fallAnimationDelay = 0.1f;
+
     [Header("Interaction")]
     public UnityEvent onInteract = new UnityEvent();
 
@@ -39,7 +45,10 @@ public class ThirdPersonController : MonoBehaviour
     private float standingHeight;
     private Vector3 standingCenter;
     private float verticalVelocity;
+    private float ungroundedTime;
     private bool isCrouching;
+    private bool wasAirborne;
+    private readonly Collider[] groundCheckHits = new Collider[8];
 
     private void Awake()
     {
@@ -79,7 +88,7 @@ public class ThirdPersonController : MonoBehaviour
         if (crouchAction.WasPressedThisFrame())
             SetCrouching(!isCrouching);
 
-        bool grounded = characterController.isGrounded;
+        bool grounded = IsGrounded();
         if (grounded && verticalVelocity < 0f)
             verticalVelocity = -2f;
 
@@ -111,13 +120,57 @@ public class ThirdPersonController : MonoBehaviour
         if ((collisions & CollisionFlags.Above) != 0 && verticalVelocity > 0f)
             verticalVelocity = 0f;
 
+        bool groundedAfterMove = IsGrounded();
+        if (verticalVelocity > 0f || groundedAfterMove)
+            ungroundedTime = 0f;
+        else
+            ungroundedTime += Time.deltaTime;
+
+        bool isAirborne = verticalVelocity > 0f ||
+                          (!groundedAfterMove && ungroundedTime >= fallAnimationDelay);
+
+        if (isAirborne && !wasAirborne)
+            Debug.Log("Player left the ground.", this);
+
+        wasAirborne = isAirborne;
+
         if (animator != null)
         {
             animator.SetBool("crouch", isCrouching);
             animator.SetBool("run", isMoving);
             animator.SetBool("sprint", isSprinting);
-            animator.SetBool("air", !characterController.isGrounded);
+            animator.SetBool("air", isAirborne);
         }
+    }
+
+    private bool IsGrounded()
+    {
+        if (characterController.isGrounded)
+            return true;
+
+        Vector3 worldCenter = transform.TransformPoint(characterController.center);
+        float bottomSphereOffset = characterController.height * 0.5f - characterController.radius;
+        Vector3 footSphereCenter = worldCenter - Vector3.up * bottomSphereOffset;
+        Vector3 probeCenter = footSphereCenter - Vector3.up * groundProbeDistance;
+        float probeRadius = Mathf.Max(0.05f, characterController.radius * 0.8f);
+
+        int hitCount = Physics.OverlapSphereNonAlloc(
+            probeCenter,
+            probeRadius,
+            groundCheckHits,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+
+        for (int i = 0; i < hitCount; i++)
+        {
+            Collider hit = groundCheckHits[i];
+            if (hit == null || hit == characterController || hit.transform.IsChildOf(transform))
+                continue;
+
+            return true;
+        }
+
+        return false;
     }
 
     private Vector3 GetCameraRelativeDirection(Vector2 input)
