@@ -9,6 +9,7 @@
 ## Commit messages
 
 - Use the `type: summary` format for the subject, choosing a type that fits the change (for example, `feat`, `fix`, `docs`, or `chore`).
+- Write commit subjects and bodies in English, including amended commit messages.
 - Leave a blank line after the subject, then summarize changes as bullets.
 - Example:
 
