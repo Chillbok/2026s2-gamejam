@@ -31,6 +31,8 @@ public sealed class RollingDroneController : MonoBehaviour, IDamageable
     [SerializeField, Min(0f)] private float maxAcceleration = 16f;
     [SerializeField, Min(0.05f)] private float velocityResponseTime = 0.45f;
     [SerializeField, Min(0f)] private float linearDamping = 0.2f;
+    [SerializeField, Min(0f), Tooltip("Maximum facing rotation speed in degrees per second.")]
+    private float maxTurnSpeed = 180f;
 
     [Header("Wandering")]
     [SerializeField, Min(0f)] private float wanderRadius = 8f;
@@ -309,7 +311,17 @@ public sealed class RollingDroneController : MonoBehaviour, IDamageable
             : desiredVelocity;
         heading = Vector3.ProjectOnPlane(heading, Vector3.up);
         if (heading.sqrMagnitude > 0.04f)
-            logicalForward = heading.normalized;
+        {
+            Vector3 currentHeading = logicalForward.sqrMagnitude > 0.001f
+                ? logicalForward.normalized
+                : heading.normalized;
+            float maxRadiansDelta = maxTurnSpeed * Mathf.Deg2Rad * Time.fixedDeltaTime;
+            logicalForward = Vector3.RotateTowards(
+                currentHeading,
+                heading.normalized,
+                maxRadiansDelta,
+                0f).normalized;
+        }
     }
 
     private void UpdateVisionRangeVisual()
