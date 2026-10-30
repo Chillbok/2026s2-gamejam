@@ -5,25 +5,9 @@ using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(CharacterController))]
 [RequireComponent(typeof(PlayerInput))]
+[RequireComponent(typeof(PlayerStatsController))]
 public class ThirdPersonController : MonoBehaviour
 {
-    [Header("Movement")]
-    [Min(0f)] public float walkSpeed = 4.5f;
-    [Min(0f)] public float sprintSpeed = 7.5f;
-    [Min(0f)] public float crouchSpeed = 2f;
-    [Min(0f)] public float turnSpeed = 720f;
-
-    [Header("Jump and Gravity")]
-    [Tooltip("Target jump height in world units.")]
-    [Min(0.1f)] public float jumpHeight = 1.5f;
-    [Tooltip("Base downward gravity strength. Higher values make the jump arc faster.")]
-    [Min(0.1f)] public float gravity = 20f;
-    [Tooltip("Gravity multiplier used only while descending. Increase this for a faster fall.")]
-    [Min(1f)] public float fallGravityMultiplier = 2f;
-
-    [Header("Crouch")]
-    [Min(0.5f)] public float crouchHeight = 0.95f;
-
     [Header("Grounding")]
     [Tooltip("How far below the Character Controller's foot to check for ground.")]
     [Min(0f)] public float groundProbeDistance = 0.15f;
@@ -36,6 +20,7 @@ public class ThirdPersonController : MonoBehaviour
     private CharacterController characterController;
     private Animator animator;
     private PlayerInput playerInput;
+    private PlayerStatsController playerStats;
     private InputAction moveAction;
     private InputAction sprintAction;
     private InputAction jumpAction;
@@ -55,6 +40,7 @@ public class ThirdPersonController : MonoBehaviour
         characterController = GetComponent<CharacterController>();
         animator = GetComponent<Animator>();
         playerInput = GetComponent<PlayerInput>();
+        playerStats = GetComponent<PlayerStatsController>();
         standingHeight = characterController.height;
         standingCenter = characterController.center;
     }
@@ -95,14 +81,23 @@ public class ThirdPersonController : MonoBehaviour
         if (jumpAction.WasPressedThisFrame() && grounded)
         {
             if (!isCrouching || SetCrouching(false))
-                verticalVelocity = Mathf.Sqrt(2f * gravity * jumpHeight);
+                verticalVelocity = Mathf.Sqrt(2f * playerStats.Gravity * playerStats.JumpHeight);
         }
 
         Vector2 input = Vector2.ClampMagnitude(moveAction.ReadValue<Vector2>(), 1f);
         Vector3 moveDirection = GetCameraRelativeDirection(input);
         bool isMoving = moveDirection.sqrMagnitude > 0.001f;
-        bool isSprinting = !isCrouching && isMoving && sprintAction.IsPressed();
-        float speed = isCrouching ? crouchSpeed : isSprinting ? sprintSpeed : walkSpeed;
+        bool wantsToSprint = !isCrouching && isMoving && sprintAction.IsPressed();
+        bool isSprinting = wantsToSprint && playerStats.CanSprint;
+        if (isSprinting)
+        {
+            isSprinting = playerStats.TryConsumeStamina(
+                playerStats.StaminaDrainPerSecond * Time.deltaTime);
+        }
+
+        float speed = isCrouching
+            ? playerStats.CrouchSpeed
+            : isSprinting ? playerStats.SprintSpeed : playerStats.WalkSpeed;
 
         if (isMoving)
         {
@@ -110,11 +105,11 @@ public class ThirdPersonController : MonoBehaviour
             transform.rotation = Quaternion.RotateTowards(
                 transform.rotation,
                 targetRotation,
-                turnSpeed * Time.deltaTime);
+                playerStats.TurnSpeed * Time.deltaTime);
         }
 
-        float gravityMultiplier = verticalVelocity < 0f ? fallGravityMultiplier : 1f;
-        verticalVelocity -= gravity * gravityMultiplier * Time.deltaTime;
+        float gravityMultiplier = verticalVelocity < 0f ? playerStats.FallGravityMultiplier : 1f;
+        verticalVelocity -= playerStats.Gravity * gravityMultiplier * Time.deltaTime;
         Vector3 velocity = moveDirection * speed + Vector3.up * verticalVelocity;
         CollisionFlags collisions = characterController.Move(velocity * Time.deltaTime);
         if ((collisions & CollisionFlags.Above) != 0 && verticalVelocity > 0f)
@@ -195,7 +190,10 @@ public class ThirdPersonController : MonoBehaviour
 
         if (crouch)
         {
-            float newHeight = Mathf.Clamp(crouchHeight, characterController.radius * 2f, standingHeight);
+            float newHeight = Mathf.Clamp(
+                playerStats.CrouchHeight,
+                characterController.radius * 2f,
+                standingHeight);
             characterController.height = newHeight;
             characterController.center = standingCenter + Vector3.down * ((standingHeight - newHeight) * 0.5f);
             isCrouching = true;
