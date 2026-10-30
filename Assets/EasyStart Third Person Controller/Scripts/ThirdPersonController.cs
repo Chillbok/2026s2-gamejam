@@ -1,200 +1,186 @@
 ﻿
-using UnityEditor.VersionControl;
 using UnityEngine;
+using UnityEngine.Events;
+using UnityEngine.InputSystem;
 
-/*
-    This file has a commented version with details about how each line works. 
-    The commented version contains code that is easier and simpler to read. This file is minified.
-*/
-
-
-/// <summary>
-/// Main script for third-person movement of the character in the game.
-/// Make sure that the object that will receive this script (the player) 
-/// has the Player tag and the Character Controller component.
-/// </summary>
+[RequireComponent(typeof(CharacterController))]
+[RequireComponent(typeof(PlayerInput))]
 public class ThirdPersonController : MonoBehaviour
 {
+    [Header("Movement")]
+    [Min(0f)] public float walkSpeed = 4.5f;
+    [Min(0f)] public float sprintSpeed = 7.5f;
+    [Min(0f)] public float crouchSpeed = 2f;
+    [Min(0f)] public float turnSpeed = 720f;
 
-    [Tooltip("Speed ​​at which the character moves. It is not affected by gravity or jumping.")]
-    public float velocity = 5f;
-    [Tooltip("This value is added to the speed value while the character is sprinting.")]
-    public float sprintAdittion = 3.5f;
-    [Tooltip("The higher the value, the higher the character will jump.")]
-    public float jumpForce = 18f;
-    [Tooltip("Stay in the air. The higher the value, the longer the character floats before falling.")]
-    public float jumpTime = 0.85f;
-    [Space]
-    [Tooltip("Force that pulls the player down. Changing this value causes all movement, jumping and falling to be changed as well.")]
-    public float gravity = 9.8f;
+    [Header("Jump and Gravity")]
+    [Tooltip("Target jump height in world units.")]
+    [Min(0.1f)] public float jumpHeight = 1.5f;
+    [Tooltip("Base downward gravity strength. Higher values make the jump arc faster.")]
+    [Min(0.1f)] public float gravity = 20f;
+    [Tooltip("Gravity multiplier used only while descending. Increase this for a faster fall.")]
+    [Min(1f)] public float fallGravityMultiplier = 2f;
 
-    float jumpElapsedTime = 0;
+    [Header("Crouch")]
+    [Min(0.5f)] public float crouchHeight = 0.95f;
 
-    // Player states
-    bool isJumping = false;
-    bool isSprinting = false;
-    bool isCrouching = false;
+    [Header("Interaction")]
+    public UnityEvent onInteract = new UnityEvent();
 
-    // Inputs
-    float inputHorizontal;
-    float inputVertical;
-    bool inputJump;
-    bool inputCrouch;
-    bool inputSprint;
+    private CharacterController characterController;
+    private Animator animator;
+    private PlayerInput playerInput;
+    private InputAction moveAction;
+    private InputAction sprintAction;
+    private InputAction jumpAction;
+    private InputAction crouchAction;
+    private InputAction interactAction;
 
-    Animator animator;
-    CharacterController cc;
+    private float standingHeight;
+    private Vector3 standingCenter;
+    private float verticalVelocity;
+    private bool isCrouching;
 
-
-    void Start()
+    private void Awake()
     {
-        cc = GetComponent<CharacterController>();
+        characterController = GetComponent<CharacterController>();
         animator = GetComponent<Animator>();
-
-        // Message informing the user that they forgot to add an animator
-        if (animator == null)
-            Debug.LogWarning("Hey buddy, you don't have the Animator component in your player. Without it, the animations won't work.");
+        playerInput = GetComponent<PlayerInput>();
+        standingHeight = characterController.height;
+        standingCenter = characterController.center;
     }
 
-
-    // Update is only being used here to identify keys and trigger animations
-    void Update()
+    private void Start()
     {
-
-        // Input checkers
-        inputHorizontal = Input.GetAxis("Horizontal");
-        inputVertical = Input.GetAxis("Vertical");
-        inputJump = Input.GetAxis("Jump") == 1f;
-        inputSprint = Input.GetAxis("Fire3") == 1f;
-        // Unfortunately GetAxis does not work with GetKeyDown, so inputs must be taken individually
-        inputCrouch = Input.GetKeyDown(KeyCode.LeftControl) || Input.GetKeyDown(KeyCode.JoystickButton1);
-
-        // Check if you pressed the crouch input key and change the player's state
-        if ( inputCrouch )
-            isCrouching = !isCrouching;
-
-        // Run and Crouch animation
-        // If dont have animator component, this block wont run
-        if ( cc.isGrounded && animator != null )
+        if (playerInput.actions == null)
         {
+            Debug.LogError("PlayerInput needs the InputSystem_Actions asset assigned.", this);
+            enabled = false;
+            return;
+        }
 
-            // Crouch
-            // Note: The crouch animation does not shrink the character's collider
+        InputActionMap playerMap = playerInput.actions.FindActionMap("Player", true);
+        moveAction = playerMap.FindAction("Move", true);
+        sprintAction = playerMap.FindAction("Sprint", true);
+        jumpAction = playerMap.FindAction("Jump", true);
+        crouchAction = playerMap.FindAction("Crouch", true);
+        interactAction = playerMap.FindAction("Interact", true);
+        interactAction.performed += HandleInteract;
+    }
+
+    private void OnDestroy()
+    {
+        if (interactAction != null)
+            interactAction.performed -= HandleInteract;
+    }
+
+    private void Update()
+    {
+        if (crouchAction.WasPressedThisFrame())
+            SetCrouching(!isCrouching);
+
+        bool grounded = characterController.isGrounded;
+        if (grounded && verticalVelocity < 0f)
+            verticalVelocity = -2f;
+
+        if (jumpAction.WasPressedThisFrame() && grounded)
+        {
+            if (!isCrouching || SetCrouching(false))
+                verticalVelocity = Mathf.Sqrt(2f * gravity * jumpHeight);
+        }
+
+        Vector2 input = Vector2.ClampMagnitude(moveAction.ReadValue<Vector2>(), 1f);
+        Vector3 moveDirection = GetCameraRelativeDirection(input);
+        bool isMoving = moveDirection.sqrMagnitude > 0.001f;
+        bool isSprinting = !isCrouching && isMoving && sprintAction.IsPressed();
+        float speed = isCrouching ? crouchSpeed : isSprinting ? sprintSpeed : walkSpeed;
+
+        if (isMoving)
+        {
+            Quaternion targetRotation = Quaternion.LookRotation(moveDirection, Vector3.up);
+            transform.rotation = Quaternion.RotateTowards(
+                transform.rotation,
+                targetRotation,
+                turnSpeed * Time.deltaTime);
+        }
+
+        float gravityMultiplier = verticalVelocity < 0f ? fallGravityMultiplier : 1f;
+        verticalVelocity -= gravity * gravityMultiplier * Time.deltaTime;
+        Vector3 velocity = moveDirection * speed + Vector3.up * verticalVelocity;
+        CollisionFlags collisions = characterController.Move(velocity * Time.deltaTime);
+        if ((collisions & CollisionFlags.Above) != 0 && verticalVelocity > 0f)
+            verticalVelocity = 0f;
+
+        if (animator != null)
+        {
             animator.SetBool("crouch", isCrouching);
-            
-            // Run
-            float minimumSpeed = 0.9f;
-            animator.SetBool("run", cc.velocity.magnitude > minimumSpeed );
-
-            // Sprint
-            isSprinting = cc.velocity.magnitude > minimumSpeed && inputSprint;
-            animator.SetBool("sprint", isSprinting );
-
+            animator.SetBool("run", isMoving);
+            animator.SetBool("sprint", isSprinting);
+            animator.SetBool("air", !characterController.isGrounded);
         }
-
-        // Jump animation
-        if( animator != null )
-            animator.SetBool("air", cc.isGrounded == false );
-
-        // Handle can jump or not
-        if ( inputJump && cc.isGrounded )
-        {
-            isJumping = true;
-            // Disable crounching when jumping
-            //isCrouching = false; 
-        }
-
-        HeadHittingDetect();
-
     }
 
-
-    // With the inputs and animations defined, FixedUpdate is responsible for applying movements and actions to the player
-    private void FixedUpdate()
+    private Vector3 GetCameraRelativeDirection(Vector2 input)
     {
-
-        // Sprinting velocity boost or crounching desacelerate
-        float velocityAdittion = 0;
-        if ( isSprinting )
-            velocityAdittion = sprintAdittion;
-        if (isCrouching)
-            velocityAdittion =  - (velocity * 0.50f); // -50% velocity
-
-        // Direction movement
-        float directionX = inputHorizontal * (velocity + velocityAdittion) * Time.deltaTime;
-        float directionZ = inputVertical * (velocity + velocityAdittion) * Time.deltaTime;
-        float directionY = 0;
-
-        // Jump handler
-        if ( isJumping )
-        {
-
-            // Apply inertia and smoothness when climbing the jump
-            // It is not necessary when descending, as gravity itself will gradually pulls
-            directionY = Mathf.SmoothStep(jumpForce, jumpForce * 0.30f, jumpElapsedTime / jumpTime) * Time.deltaTime;
-
-            // Jump timer
-            jumpElapsedTime += Time.deltaTime;
-            if (jumpElapsedTime >= jumpTime)
-            {
-                isJumping = false;
-                jumpElapsedTime = 0;
-            }
-        }
-
-        // Add gravity to Y axis
-        directionY = directionY - gravity * Time.deltaTime;
-
-        
-        // --- Character rotation --- 
-
-        Vector3 forward = Camera.main.transform.forward;
-        Vector3 right = Camera.main.transform.right;
-
-        forward.y = 0;
-        right.y = 0;
-
-        forward.Normalize();
-        right.Normalize();
-
-        // Relate the front with the Z direction (depth) and right with X (lateral movement)
-        forward = forward * directionZ;
-        right = right * directionX;
-
-        if (directionX != 0 || directionZ != 0)
-        {
-            float angle = Mathf.Atan2(forward.x + right.x, forward.z + right.z) * Mathf.Rad2Deg;
-            Quaternion rotation = Quaternion.Euler(0, angle, 0);
-            transform.rotation = Quaternion.Slerp(transform.rotation, rotation, 0.15f);
-        }
-
-        // --- End rotation ---
-
-        
-        Vector3 verticalDirection = Vector3.up * directionY;
-        Vector3 horizontalDirection = forward + right;
-
-        Vector3 moviment = verticalDirection + horizontalDirection;
-        cc.Move( moviment );
-
+        Transform cameraTransform = Camera.main != null ? Camera.main.transform : transform;
+        Vector3 forward = Vector3.ProjectOnPlane(cameraTransform.forward, Vector3.up).normalized;
+        Vector3 right = Vector3.ProjectOnPlane(cameraTransform.right, Vector3.up).normalized;
+        Vector3 direction = forward * input.y + right * input.x;
+        return direction.sqrMagnitude > 1f ? direction.normalized : direction;
     }
 
-
-    //This function makes the character end his jump if he hits his head on something
-    void HeadHittingDetect()
+    private void HandleInteract(InputAction.CallbackContext context)
     {
-        float headHitDistance = 1.1f;
-        Vector3 ccCenter = transform.TransformPoint(cc.center);
-        float hitCalc = cc.height / 2f * headHitDistance;
-
-        // Uncomment this line to see the Ray drawed in your characters head
-        // Debug.DrawRay(ccCenter, Vector3.up * headHeight, Color.red);
-
-        if (Physics.Raycast(ccCenter, Vector3.up, hitCalc))
-        {
-            jumpElapsedTime = 0;
-            isJumping = false;
-        }
+        Debug.Log("Interaction key pressed (E).", this);
+        onInteract?.Invoke();
     }
 
+    private bool SetCrouching(bool crouch)
+    {
+        if (crouch == isCrouching)
+            return true;
+
+        if (crouch)
+        {
+            float newHeight = Mathf.Clamp(crouchHeight, characterController.radius * 2f, standingHeight);
+            characterController.height = newHeight;
+            characterController.center = standingCenter + Vector3.down * ((standingHeight - newHeight) * 0.5f);
+            isCrouching = true;
+            return true;
+        }
+
+        if (!HasRoomToStand())
+            return false;
+
+        characterController.height = standingHeight;
+        characterController.center = standingCenter;
+        isCrouching = false;
+        return true;
+    }
+
+    private bool HasRoomToStand()
+    {
+        float radius = Mathf.Max(0.01f, characterController.radius - characterController.skinWidth);
+        float capsuleSegment = Mathf.Max(0f, standingHeight * 0.5f - radius);
+        Vector3 center = transform.TransformPoint(standingCenter);
+        Vector3 bottom = center - Vector3.up * capsuleSegment;
+        Vector3 top = center + Vector3.up * capsuleSegment;
+
+        Collider[] overlaps = Physics.OverlapCapsule(
+            bottom,
+            top,
+            radius,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Ignore);
+
+        foreach (Collider overlap in overlaps)
+        {
+            if (overlap == characterController || overlap.transform.IsChildOf(transform))
+                continue;
+
+            return false;
+        }
+
+        return true;
+    }
 }
