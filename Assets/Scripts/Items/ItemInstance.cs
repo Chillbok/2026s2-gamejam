@@ -10,6 +10,8 @@ public sealed class ItemInstance
     public string InstanceId => instanceId;
     public ItemData Definition => definition;
 
+    public ItemInstance() { }
+
     public ItemInstance(ItemData definition)
     {
         this.definition = definition;

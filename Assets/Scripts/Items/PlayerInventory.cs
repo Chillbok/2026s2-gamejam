@@ -208,7 +208,8 @@ public sealed class PlayerInventory : MonoBehaviour
         if (heldItemData == definition && heldItemList == sourceKind)
             ClearHeldItem();
 
-        WorldItemPickup.Spawn(definition, instances, transform.position);
+		Vector3 dropPosition = transform.position + transform.forward * 0.8f + Vector3.up * 0.5f;
+        WorldItemPickup.Spawn(definition, instances, dropPosition);
         NotifyChanged();
         return true;
     }
